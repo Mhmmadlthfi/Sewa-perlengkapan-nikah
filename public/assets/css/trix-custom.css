@@ -1,0 +1,19 @@
+/* Sembunyikan elemen yang diblokir */
+trix-editor del,
+trix-editor strike,
+trix-editor blockquote,
+trix-editor pre:not([class^="language-"]),
+trix-editor a[href],
+trix-editor .attachment {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* Nonaktifkan tombol di toolbar */
+trix-toolbar .trix-button--icon-strike,
+trix-toolbar .trix-button--icon-link,
+trix-toolbar .trix-button--icon-quote,
+trix-toolbar .trix-button--icon-code,
+trix-toolbar .trix-button-group--file-tools {
+  display: none !important;
+}

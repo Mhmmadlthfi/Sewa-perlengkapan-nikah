@@ -30,8 +30,8 @@ Route::get('/products', [MobileController::class, 'products'])->middleware('auth
 
 Route::post('/check-availability', [MobileController::class, 'checkAvailability'])->middleware('auth:sanctum');
 Route::post('/rental-orders', [MobileController::class, 'orderStore'])->middleware('auth:sanctum');
-Route::post('/orders/{orderId}/regenerate-snap', [MobileController::class, 'regenerateSnap'])->middleware('auth:sanctum');
 Route::post('/orders/{orderId}/check-payment-status', [MobileController::class, 'checkPaymentStatus'])->middleware('auth:sanctum');
+Route::post('/orders/{orderId}/regenerate-snap', [MobileController::class, 'regenerateSnap'])->middleware('auth:sanctum');
 
 
 Route::get('/user-orders', [MobileController::class, 'getUserOrders'])->middleware('auth:sanctum');

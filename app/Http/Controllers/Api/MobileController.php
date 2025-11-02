@@ -366,34 +366,40 @@ class MobileController extends Controller
         }
 
         try {
-            $status = Transaction::status($order->id);
+            $status = Transaction::status($order->order_code);
 
-            // Jika status Midtrans sudah expired
-            if ($status->transaction_status === 'expire') {
-                // Tandai juga di database kamu
-                $order->payment_status = 'expired';
-                $order->save();
-
-                return response()->json(['status' => 'expired']);
+            // Update status berdasarkan response Midtrans - PENTING untuk sinkronisasi
+            switch ($status->transaction_status) {
+                case 'settlement':
+                    $order->payment_status = 'paid';
+                    $order->save();
+                    return response()->json(['status' => 'paid']);
+                    
+                case 'expire':
+                    $order->payment_status = 'expired';
+                    $order->save();
+                    return response()->json(['status' => 'expired']);
+                    
+                case 'pending':
+                    // Tidak perlu update database, biarkan status existing
+                    return response()->json(['status' => 'pending']);
+                    
+                case 'cancel':
+                case 'deny':
+                    $order->payment_status = 'failed';
+                    $order->save();
+                    return response()->json(['status' => 'failed']);
+                    
+                default:
+                    return response()->json(['status' => $status->transaction_status]);
             }
-
-            // Jika masih pending
-            if ($status->transaction_status === 'pending') {
-                return response()->json(['status' => 'pending']);
-            }
-
-            // Jika sudah dibayar
-            if ($status->transaction_status === 'settlement') {
-                $order->payment_status = 'paid';
-                $order->save();
-                return response()->json(['status' => 'paid']);
-            }
-
-            return response()->json(['status' => $status->transaction_status]);
         } catch (\Exception $e) {
+            // Jika error dari Midtrans, return status dari database
+            \Log::error('Midtrans status check error for order ' . $orderId . ': ' . $e->getMessage());
+            
             return response()->json([
-                'status' => 'error',
-                'message' => $e->getMessage(),
+                'status' => $order->payment_status ?: 'pending', // Default ke pending jika error
+                'message' => 'Gagal memeriksa status, menggunakan status terakhir',
             ]);
         }
     }
@@ -402,37 +408,52 @@ class MobileController extends Controller
     {
         $order = Order::findOrFail($orderId);
 
-        // Pastikan order belum dibayar
+        // Validasi: hanya regenerate jika benar-benar diperlukan
         if ($order->payment_status === 'paid') {
             return response()->json(['success' => false, 'message' => 'Order sudah dibayar.']);
         }
 
+        // Cek umur token - hanya regenerate jika > 24 jam
+        $tokenAge = now()->diffInHours($order->updated_at);
+        if ($tokenAge < 24 && $order->snap_token) {
+            return response()->json([
+                'success' => true,
+                'snap_token' => $order->snap_token,
+                'message' => 'Token masih berlaku.',
+            ]);
+        }
+
+        // Generate token baru hanya jika diperlukan
         $orderCode = 'ORD-' . date('Ymd') . '-' . str_pad($order->id, 4, '0', STR_PAD_LEFT);
         $order->order_code = $orderCode;
-        $order->save();
-
-        // Generate token baru dari Midtrans
+        
         $params = [
             'transaction_details' => [
-                'order_id' => $order->order_code,
+                'order_id' => $orderCode,
                 'gross_amount' => $order->total_price,
             ],
             'customer_details' => [
                 'first_name' => $order->user->name,
                 'email' => $order->user->email,
+                'phone' => $order->user->phone,
             ],
         ];
 
-        $snapToken = Snap::getSnapToken($params);
+        try {
+            $snapToken = Snap::getSnapToken($params);
+            $order->snap_token = $snapToken;
+            $order->save();
 
-        // Simpan token baru ke database
-        $order->snap_token = $snapToken;
-        $order->save();
-
-        return response()->json([
-            'success' => true,
-            'snap_token' => $snapToken,
-            'message' => 'Token pembayaran baru berhasil dibuat.',
-        ]);
+            return response()->json([
+                'success' => true,
+                'snap_token' => $snapToken,
+                'message' => 'Token pembayaran baru berhasil dibuat.',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal membuat token: ' . $e->getMessage(),
+            ], 400);
+        }
     }
 }
